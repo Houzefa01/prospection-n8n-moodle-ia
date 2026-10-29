@@ -1,0 +1,12 @@
+# Image prospection : Node Alpine + python3 + n8n (npm).
+# Pourquoi pas n8nio/n8n direct ? L'image officielle actuelle est "hardened"
+# (sans shell ni gestionnaire de paquets) : impossible d'y ajouter python3,
+# nécessaire pour exécuter scripts/*.py via le node Execute Command.
+FROM node:22-alpine
+RUN apk add --no-cache python3 sqlite tini
+RUN npm install -g --omit=dev --no-audit --no-fund --loglevel=error n8n
+RUN mkdir -p /home/node/.n8n && chown -R node:node /home/node/.n8n
+USER node
+ENV N8N_USER_FOLDER=/home/node/.n8n
+EXPOSE 5678
+ENTRYPOINT ["tini", "--", "n8n"]

@@ -1,0 +1,504 @@
+{
+ "id": "2e86c695-a036-4c26-8c90-3edf63d53263",
+ "name": "FB - Messenger",
+ "active": false,
+ "nodes": [
+  {
+   "id": "n-688d4b",
+   "name": "Reçoit payload messaging",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.1,
+   "position": [
+    200,
+    420
+   ],
+   "parameters": {}
+  },
+  {
+   "id": "n-a5c786",
+   "name": "Extraire message",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    400,
+    420
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst entry = (body.entry || [])[0] || {};\nconst msg = (entry.messaging || [])[0] || {};\nreturn [{ json: {\n  sender_id: (msg.sender && msg.sender.id) || '',\n  texte: (msg.message && msg.message.text) || '',\n  page_id: (msg.recipient && msg.recipient.id) || ''\n} }];"
+   }
+  },
+  {
+   "id": "n-6aa3d9",
+   "name": "FB - Profil client",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    600,
+    420
+   ],
+   "parameters": {
+    "method": "GET",
+    "url": "=https://graph.facebook.com/v21.0/{{ $('Extraire message').first().json.sender_id }}",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpQueryAuth",
+    "sendQuery": true,
+    "queryParameters": {
+     "parameters": [
+      {
+       "name": "fields",
+       "value": "first_name,last_name"
+      }
+     ]
+    },
+    "options": {
+     "timeout": 30000
+    }
+   },
+   "credentials": {
+    "httpQueryAuth": {
+     "id": null,
+     "name": "Facebook Page Token"
+    }
+   }
+  },
+  {
+   "id": "n-fc1b70",
+   "name": "Lire Conversations",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.2,
+   "position": [
+    800,
+    420
+   ],
+   "parameters": {
+    "resource": "sheetWithinDocument",
+    "operation": "read",
+    "documentId": {
+     "__rl": true,
+     "mode": "list",
+     "value": ""
+    },
+    "sheetName": {
+     "__rl": true,
+     "mode": "list",
+     "value": "Conversations"
+    },
+    "options": {}
+   },
+   "credentials": {
+    "googleSheetsOAuth2Api": {
+     "id": null,
+     "name": "Google Sheets - Commandes"
+    }
+   }
+  },
+  {
+   "id": "n-3888e7",
+   "name": "Preparer contexte",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1000,
+    420
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const cur = $('Extraire message').first().json;\nconst profil = $('FB - Profil client').first().json;\nconst lignes = $('Lire Conversations').all().map(i => i.json);\nconst ligne = lignes.find(r => String(r.psid) === String(cur.sender_id));\nreturn [{ json: {\n  sender_id: cur.sender_id, texte: cur.texte,\n  prenom: profil.first_name || '', nom: profil.last_name || '',\n  historique_json: (ligne && ligne.historique_json) || '[]',\n  conversation_existe: !!ligne\n} }];"
+   }
+  },
+  {
+   "id": "n-aba61d",
+   "name": "Gemini - Conseil Messenger",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1200,
+    420
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ system_instruction: { parts: [{ text: \"Tu es l'assistant commercial de la page Facebook 'Moi AI'. Utilise le catalogue produit (meme source que le workflow commentaires). Pose les questions necessaires pour finaliser une commande : produit, quantite, adresse, telephone. IMPORTANT : quand toutes les informations sont reunies ET confirmees par le client, termine ta reponse par un bloc JSON strict sur une ligne separee au format exact : {\\\"commande_complete\\\": true, \\\"produit\\\": \\\"...\\\", \\\"quantite\\\": ..., \\\"adresse\\\": \\\"...\\\", \\\"telephone\\\": \\\"...\\\", \\\"nom_client\\\": \\\"...\\\"}. Sinon, ne mets JAMAIS ce bloc JSON.\" }] }, contents: [{ parts: [{ text: \"CLIENT : \" + $('Preparer contexte').first().json.prenom + \" \" + $('Preparer contexte').first().json.nom + \"\\nHISTORIQUE : \" + $('Preparer contexte').first().json.historique_json + \"\\nNOUVEAU MESSAGE : \" + $('Preparer contexte').first().json.texte }] }] }) }}",
+    "options": {
+     "timeout": 60000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": null,
+     "name": "Gemini API Key"
+    }
+   }
+  },
+  {
+   "id": "n-ad13a0",
+   "name": "Parser reponse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1400,
+    420
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const raw = $('Gemini - Conseil Messenger').first().json;\nlet texte = '';\ntry { texte = raw.candidates[0].content.parts.map(p => p.text || '').join(''); } catch (e) { texte = ''; }\nconst m = texte.match(/\\{[ \\n]*\"commande_complete\"[^\\n]*\\}/);\nlet commande = null;\nif (m) { try { commande = JSON.parse(m[0]); } catch (e) { commande = null; } }\nlet texte_client = commande ? texte.slice(0, m.index).trim() : texte.trim();\nif (!texte_client) texte_client = texte.trim();\nreturn [{ json: { texte_client, commande_complete: !!commande, commande: commande || {} } }];"
+   }
+  },
+  {
+   "id": "n-4a91d2",
+   "name": "FB - Envoyer message",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1600,
+    420
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://graph.facebook.com/v21.0/me/messages",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpQueryAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ recipient: { id: $('Extraire message').first().json.sender_id }, message: { text: $('Parser reponse').first().json.texte_client } }) }}",
+    "options": {
+     "timeout": 30000
+    }
+   },
+   "credentials": {
+    "httpQueryAuth": {
+     "id": null,
+     "name": "Facebook Page Token"
+    }
+   }
+  },
+  {
+   "id": "n-92c57c",
+   "name": "Commande complete ?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    1800,
+    420
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c-900e05",
+       "leftValue": "={{ $json.commande_complete ? \"oui\" : \"non\" }}",
+       "rightValue": "oui",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {},
+    "looseTypeValidation": true
+   }
+  },
+  {
+   "id": "n-6e2430",
+   "name": "Ajouter Commande",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.2,
+   "position": [
+    2000,
+    320
+   ],
+   "parameters": {
+    "resource": "sheetWithinDocument",
+    "operation": "append",
+    "documentId": {
+     "__rl": true,
+     "mode": "list",
+     "value": ""
+    },
+    "sheetName": {
+     "__rl": true,
+     "mode": "list",
+     "value": "Commandes"
+    },
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "date": "={{ $now }}",
+      "nom_prenom_facebook": "={{ $('FB - Profil client').first().json.first_name + ' ' + $('FB - Profil client').first().json.last_name }}",
+      "adresse": "={{ $('Parser reponse').first().json.commande.adresse }}",
+      "telephone": "={{ $('Parser reponse').first().json.commande.telephone }}",
+      "produit": "={{ $('Parser reponse').first().json.commande.produit }}",
+      "quantite": "={{ $('Parser reponse').first().json.commande.quantite }}",
+      "statut": "nouvelle"
+     },
+     "matchingColumns": [],
+     "schema": []
+    },
+    "options": {}
+   },
+   "credentials": {
+    "googleSheetsOAuth2Api": {
+     "id": null,
+     "name": "Google Sheets - Commandes"
+    }
+   }
+  },
+  {
+   "id": "n-329264",
+   "name": "Notifier commande",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.1,
+   "position": [
+    2200,
+    320
+   ],
+   "parameters": {
+    "resource": "message",
+    "operation": "send",
+    "subject": "=\"Nouvelle commande Moi AI : \" + $('Parser reponse').first().json.commande.produit",
+    "emailType": "text",
+    "message": "=\"Nouvelle commande reçue via Messenger :\\nProduit : \" + $('Parser reponse').first().json.commande.produit + \"\\nQuantité : \" + $('Parser reponse').first().json.commande.quantite + \"\\nClient : \" + $('Parser reponse').first().json.commande.nom_client + \"\\nAdresse : \" + $('Parser reponse').first().json.commande.adresse + \"\\nTéléphone : \" + $('Parser reponse').first().json.commande.telephone",
+    "sendTo": "TON_EMAIL@gmail.com",
+    "options": {}
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": null,
+     "name": "Gmail SMTP - Auto_moi"
+    }
+   },
+   "notes": "Credential a creer dans n8n. Destinataire = placeholder a verifier."
+  },
+  {
+   "id": "n-3a8063",
+   "name": "Nouvel historique",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2000,
+    560
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const ctx = $('Preparer contexte').first().json;\nconst rep = $('Parser reponse').first().json;\nlet hist = [];\ntry { hist = JSON.parse(ctx.historique_json || '[]'); } catch (e) { hist = []; }\nhist.push({ role: 'client', texte: ctx.texte });\nhist.push({ role: 'moi_ai', texte: rep.texte_client });\nif (rep.commande_complete) hist.push({ role: 'commande', detail: rep.commande });\nreturn [{ json: { psid: ctx.sender_id, historique_json: JSON.stringify(hist), statut: rep.commande_complete ? 'commande' : 'en_cours' } }];"
+   }
+  },
+  {
+   "id": "n-2cf07f",
+   "name": "MAJ Conversations",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.2,
+   "position": [
+    2220,
+    520
+   ],
+   "parameters": {
+    "resource": "sheetWithinDocument",
+    "operation": "update",
+    "documentId": {
+     "__rl": true,
+     "mode": "list",
+     "value": ""
+    },
+    "sheetName": {
+     "__rl": true,
+     "mode": "list",
+     "value": "Conversations"
+    },
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "psid": "={{ $json.psid }}",
+      "historique_json": "={{ $json.historique_json }}",
+      "statut": "={{ $json.statut }}"
+     },
+     "matchingColumns": [
+      "psid"
+     ],
+     "schema": []
+    },
+    "options": {}
+   },
+   "credentials": {
+    "googleSheetsOAuth2Api": {
+     "id": null,
+     "name": "Google Sheets - Commandes"
+    }
+   },
+   "notes": "Si la ligne PSID n'existe pas encore, cree-la d'abord (une ligne par PSID) ou remplace par un Append ; adapte selon ton onglet Conversations."
+  },
+  {
+   "id": "n-2a9c42",
+   "name": "Note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    80,
+    80
+   ],
+   "parameters": {
+    "content": "## FB - Messenger\nDeclenche par le Router. Profil FB -> historique (onglet Conversations) -> Gemini -> envoi Messenger -> si commande complete : ligne en onglet Commandes + email + MAJ historique.\nLe bloc JSON commande est parse et RETIRE du texte envoye au client.\n### 4 credentials a creer (noms exacts) :\n1. `Facebook Page Token` (Query Auth : Name=`access_token`) — « FB - Profil client » + « FB - Envoyer message ».\n2. `Google Sheets - Commandes` (Google Sheets OAuth2) — « Lire Conversations », « Ajouter Commande » (onglet `Commandes`), « MAJ Conversations » (onglet `Conversations` : psid, historique_json, statut).\n3. `Gemini API Key` (Header Auth : Name=`x-goog-api-key`) — « Gemini - Conseil Messenger ».\n4. `Gmail SMTP - Auto_moi` (Gmail OAuth2) — « Notifier commande » (verifie le destinataire placeholder `TON_EMAIL@gmail.com`).",
+    "height": 260,
+    "width": 1500
+   }
+  }
+ ],
+ "connections": {
+  "Reçoit payload messaging": {
+   "main": [
+    [
+     {
+      "node": "Extraire message",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Extraire message": {
+   "main": [
+    [
+     {
+      "node": "FB - Profil client",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "FB - Profil client": {
+   "main": [
+    [
+     {
+      "node": "Lire Conversations",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Lire Conversations": {
+   "main": [
+    [
+     {
+      "node": "Preparer contexte",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Preparer contexte": {
+   "main": [
+    [
+     {
+      "node": "Gemini - Conseil Messenger",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini - Conseil Messenger": {
+   "main": [
+    [
+     {
+      "node": "Parser reponse",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Parser reponse": {
+   "main": [
+    [
+     {
+      "node": "FB - Envoyer message",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "FB - Envoyer message": {
+   "main": [
+    [
+     {
+      "node": "Commande complete ?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Commande complete ?": {
+   "main": [
+    [
+     {
+      "node": "Ajouter Commande",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Nouvel historique",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Ajouter Commande": {
+   "main": [
+    [
+     {
+      "node": "Notifier commande",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Notifier commande": {
+   "main": [
+    [
+     {
+      "node": "Nouvel historique",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Nouvel historique": {
+   "main": [
+    [
+     {
+      "node": "MAJ Conversations",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "staticData": null
+}

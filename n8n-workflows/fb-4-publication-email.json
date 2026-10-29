@@ -1,0 +1,368 @@
+{
+ "id": "95e352ff-6635-4ade-9f6c-d1dfb156d689",
+ "name": "FB - Publication automatique par email",
+ "active": false,
+ "nodes": [
+  {
+   "id": "n-c7c4ca",
+   "name": "Surveille emails",
+   "type": "n8n-nodes-base.emailReadImap",
+   "typeVersion": 2,
+   "position": [
+    200,
+    400
+   ],
+   "parameters": {
+    "mailbox": "INBOX",
+    "options": {
+     "read": "unseen"
+    }
+   },
+   "credentials": {
+    "imap": {
+     "id": null,
+     "name": "Gmail IMAP - Auto_moi"
+    }
+   }
+  },
+  {
+   "id": "n-307a28",
+   "name": "Expediteur autorise ?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    420,
+    400
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c-55b767",
+       "leftValue": "={{ $json.from.address || ($json.from.value && $json.from.value[0] && $json.from.value[0].address) || \"\" }}",
+       "rightValue": "TON_EMAIL_AUTORISE@gmail.com",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {},
+    "looseTypeValidation": true
+   }
+  },
+  {
+   "id": "n-717928",
+   "name": "Extraire PJ + texte",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    640,
+    400
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const item = $input.first();\nconst mail = item.json;\nconst bin = item.binary || {};\nconst att = Object.keys(bin)[0] || '';\nreturn [{ json: {\n  sujet: mail.subject || '',\n  texte: mail.text || mail.html || '',\n  piece_jointe: att,\n  mimeType: (att && bin[att] && bin[att].mimeType) || '',\n  nb_pieces: Object.keys(bin).length\n}, binary: bin }];"
+   }
+  },
+  {
+   "id": "n-2656a8",
+   "name": "Gemini - Texte publication",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    860,
+    400
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ system_instruction: { parts: [{ text: \"Tu rediges des publications commerciales Facebook pour la page 'Moi AI'. Ton vendeur, emojis avec moderation. N'invente AUCUN prix ni info : uniquement ce qui est donne dans l'email.\" }] }, contents: [{ parts: [{ text: \"SUJET : \" + $('Extraire PJ + texte').first().json.sujet + \"\\nINFOS : \" + $('Extraire PJ + texte').first().json.texte }] }] }) }}",
+    "options": {
+     "timeout": 60000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": null,
+     "name": "Gemini API Key"
+    }
+   }
+  },
+  {
+   "id": "n-b1ac44",
+   "name": "C'est une video ?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    1080,
+    400
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c-f4d776",
+       "leftValue": "={{ ($json.mimeType || \"\").split(\"/\")[0] }}",
+       "rightValue": "video",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {},
+    "looseTypeValidation": true
+   }
+  },
+  {
+   "id": "n-329d36",
+   "name": "FB - Publier photo",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1300,
+    300
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://graph.facebook.com/v21.0/1334913506362082/photos",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpQueryAuth",
+    "sendBody": true,
+    "contentType": "multipart-form-data",
+    "bodyParameters": {
+     "parameters": [
+      {
+       "name": "caption",
+       "value": "={{ $(\"Gemini - Texte publication\").first().json.candidates[0].content.parts.map(p => p.text || '').join('') }}"
+      }
+     ]
+    },
+    "inputDataFieldName": "={{ $('Extraire PJ + texte').first().json.piece_jointe }}",
+    "options": {
+     "timeout": 120000
+    }
+   },
+   "credentials": {
+    "httpQueryAuth": {
+     "id": null,
+     "name": "Facebook Page Token"
+    }
+   }
+  },
+  {
+   "id": "n-646431",
+   "name": "FB - Publier video",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1300,
+    520
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://graph.facebook.com/v21.0/1334913506362082/videos",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpQueryAuth",
+    "sendBody": true,
+    "contentType": "multipart-form-data",
+    "bodyParameters": {
+     "parameters": [
+      {
+       "name": "description",
+       "value": "={{ $(\"Gemini - Texte publication\").first().json.candidates[0].content.parts.map(p => p.text || '').join('') }}"
+      }
+     ]
+    },
+    "inputDataFieldName": "={{ $('Extraire PJ + texte').first().json.piece_jointe }}",
+    "options": {
+     "timeout": 300000
+    }
+   },
+   "credentials": {
+    "httpQueryAuth": {
+     "id": null,
+     "name": "Facebook Page Token"
+    }
+   }
+  },
+  {
+   "id": "n-6a503b",
+   "name": "Lien du post",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1520,
+    410
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "function pick(name) { try { return $(name).first().json; } catch (e) { return null; } }\nconst photo = pick('FB - Publier photo');\nconst video = pick('FB - Publier video');\nconst res = photo || video || {};\nreturn [{ json: { post_id: res.post_id || res.id || '', lien: (res.post_id || res.id) ? ('https://facebook.com/' + (res.post_id || res.id)) : '' } }];"
+   }
+  },
+  {
+   "id": "n-d98b0b",
+   "name": "Confirmer publication",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.1,
+   "position": [
+    1740,
+    410
+   ],
+   "parameters": {
+    "resource": "message",
+    "operation": "send",
+    "subject": "=\"Publication Moi AI creee : \" + $json.post_id",
+    "emailType": "text",
+    "message": "=\"Ta publication a ete creee.\\nPost ID : \" + $json.post_id + \"\\nLien : \" + $json.lien",
+    "sendTo": "TON_EMAIL_AUTORISE@gmail.com",
+    "options": {}
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "id": null,
+     "name": "Gmail SMTP - Auto_moi"
+    }
+   },
+   "notes": "Credential a creer dans n8n. Destinataire = placeholder a verifier."
+  },
+  {
+   "id": "n-692b9c",
+   "name": "Note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    80,
+    80
+   ],
+   "parameters": {
+    "content": "## FB - Publication automatique par email\nIMAP (non lus) -> verif expediteur -> PJ+texte -> Gemini (texte pub) -> photo OU video selon le MIME -> email de confirmation.\n### 3 credentials a creer (noms exacts) :\n1. `Gmail IMAP - Auto_moi` (IMAP) — « Surveille emails ».\n2. `Gemini API Key` (Header Auth : Name=`x-goog-api-key`) — « Gemini - Texte publication ».\n3. `Facebook Page Token` (Query Auth : Name=`access_token`) — « FB - Publier photo » + « FB - Publier video ».\n4. `Gmail SMTP - Auto_moi` (Gmail OAuth2) — « Confirmer publication ».\n### RAPPEL : remplace `TON_EMAIL_AUTORISE@gmail.com` (node « Expediteur autorise ? » ET destinataire « Confirmer publication ») par ta vraie adresse. Page cible : 1334913506362082.",
+    "height": 280,
+    "width": 1500
+   }
+  }
+ ],
+ "connections": {
+  "Surveille emails": {
+   "main": [
+    [
+     {
+      "node": "Expediteur autorise ?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Expediteur autorise ?": {
+   "main": [
+    [
+     {
+      "node": "Extraire PJ + texte",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    []
+   ]
+  },
+  "Extraire PJ + texte": {
+   "main": [
+    [
+     {
+      "node": "Gemini - Texte publication",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini - Texte publication": {
+   "main": [
+    [
+     {
+      "node": "C'est une video ?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "C'est une video ?": {
+   "main": [
+    [
+     {
+      "node": "FB - Publier video",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "FB - Publier photo",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "FB - Publier photo": {
+   "main": [
+    [
+     {
+      "node": "Lien du post",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "FB - Publier video": {
+   "main": [
+    [
+     {
+      "node": "Lien du post",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Lien du post": {
+   "main": [
+    [
+     {
+      "node": "Confirmer publication",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "staticData": null
+}

@@ -1,0 +1,6 @@
+.env
+data/*.db
+data/*.db-journal
+__pycache__/
+*.pyc
+n8n_data/

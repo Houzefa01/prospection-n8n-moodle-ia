@@ -1,0 +1,352 @@
+{
+ "id": "c6db2138-d458-49cb-81b5-a6f8dd491720",
+ "name": "FB - Webhook Router",
+ "active": false,
+ "nodes": [
+  {
+   "id": "n-d19230",
+   "name": "FB Webhook",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    240,
+    400
+   ],
+   "webhookId": "382dc276-b58c-40c4-8d05-a91b10af8331",
+   "parameters": {
+    "multipleMethods": true,
+    "httpMethod": [
+     "GET",
+     "POST"
+    ],
+    "path": "fb",
+    "responseMode": "responseNode",
+    "options": {}
+   }
+  },
+  {
+   "id": "n-e118be",
+   "name": "GET verification ?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    480,
+    400
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c-aa793d",
+       "leftValue": "={{ $json.query[\"hub.mode\"] }}",
+       "rightValue": "subscribe",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {},
+    "looseTypeValidation": true
+   }
+  },
+  {
+   "id": "n-943a3c",
+   "name": "Token OK ?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2,
+   "position": [
+    720,
+    240
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c-0ac1c8",
+       "leftValue": "={{ $json.query[\"hub.verify_token\"] }}",
+       "rightValue": "moiai_verify_2026",
+       "operator": {
+        "type": "string",
+        "operation": "equals"
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {},
+    "looseTypeValidation": true
+   }
+  },
+  {
+   "id": "n-46988c",
+   "name": "Repondre Challenge",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    960,
+    160
+   ],
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "={{ $json.query[\"hub.challenge\"] }}",
+    "options": {
+     "responseCode": 200,
+     "responseContentType": "text/plain"
+    }
+   }
+  },
+  {
+   "id": "n-15455b",
+   "name": "Repondre 403",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    960,
+    340
+   ],
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "Forbidden",
+    "options": {
+     "responseCode": 403
+    }
+   }
+  },
+  {
+   "id": "n-bb4e63",
+   "name": "Repondre 200",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    720,
+    560
+   ],
+   "parameters": {
+    "respondWith": "text",
+    "responseBody": "EVENT_RECEIVED",
+    "options": {
+     "responseCode": 200
+    }
+   }
+  },
+  {
+   "id": "n-1c6e61",
+   "name": "Router evenements",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3,
+   "position": [
+    960,
+    560
+   ],
+   "parameters": {
+    "rules": {
+     "values": [
+      {
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose",
+         "version": 2
+        },
+        "conditions": [
+         {
+          "id": "c-b76999",
+          "leftValue": "={{ $json.body.entry[0].changes[0].field }}",
+          "rightValue": "feed",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       },
+       "renameOutput": true,
+       "outputKey": "commentaires"
+      },
+      {
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose",
+         "version": 2
+        },
+        "conditions": [
+         {
+          "id": "c-572575",
+          "leftValue": "={{ JSON.stringify($json.body.entry[0].messaging) }}",
+          "rightValue": "",
+          "operator": {
+           "type": "string",
+           "operation": "notEmpty"
+          }
+         }
+        ],
+        "combinator": "and"
+       },
+       "renameOutput": true,
+       "outputKey": "messenger"
+      }
+     ]
+    },
+    "options": {
+     "fallbackOutput": "ignore"
+    }
+   }
+  },
+  {
+   "id": "n-e3e139",
+   "name": "Vers Commentaires",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.1,
+   "position": [
+    1200,
+    480
+   ],
+   "parameters": {
+    "source": "database",
+    "workflow": {
+     "mode": "list",
+     "value": "",
+     "cachedResultName": "FB - Répondre aux commentaires"
+    },
+    "options": {}
+   },
+   "notes": "A re-lier vers le workflow « FB - Répondre aux commentaires » (sélection dans la liste après import)."
+  },
+  {
+   "id": "n-492b42",
+   "name": "Vers Messenger",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.1,
+   "position": [
+    1200,
+    660
+   ],
+   "parameters": {
+    "source": "database",
+    "workflow": {
+     "mode": "list",
+     "value": "",
+     "cachedResultName": "FB - Messenger"
+    },
+    "options": {}
+   },
+   "notes": "A re-lier vers le workflow « FB - Messenger » (sélection dans la liste après import)."
+  },
+  {
+   "id": "n-1b90d0",
+   "name": "Note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    120,
+    40
+   ],
+   "parameters": {
+    "content": "## FB - Webhook Router\n- webhook : `GET+POST https://auto.enset.work/webhook/fb` (test : `.../webhook-test/fb`).\n- GET `hub.mode=subscribe` -> verifie `hub.verify_token` (= `moiai_verify_2026`, a recopier cote Meta) puis renvoie `hub.challenge` (text/plain), sinon 403.\n- POST -> reponse immediate `EVENT_RECEIVED` (200, exige par Meta) PUIS routage :\n  `feed` -> workflow « FB - Répondre aux commentaires », `messaging` -> « FB - Messenger ».\n- Apres import : ouvrir les 2 nodes Execute Workflow et re-selectionner chaque sous-workflow dans la liste (l'ID est attribue a l'import).",
+    "height": 200,
+    "width": 1080
+   }
+  }
+ ],
+ "connections": {
+  "FB Webhook": {
+   "main": [
+    [
+     {
+      "node": "GET verification ?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "GET verification ?": {
+   "main": [
+    [
+     {
+      "node": "Token OK ?",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Repondre 200",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Token OK ?": {
+   "main": [
+    [
+     {
+      "node": "Repondre Challenge",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Repondre 403",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Repondre 200": {
+   "main": [
+    [
+     {
+      "node": "Router evenements",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Router evenements": {
+   "main": [
+    [
+     {
+      "node": "Vers Commentaires",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Vers Messenger",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "staticData": null
+}

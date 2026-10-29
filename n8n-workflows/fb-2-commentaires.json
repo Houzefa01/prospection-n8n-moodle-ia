@@ -1,0 +1,211 @@
+{
+ "id": "f05ceef7-a088-4a54-8bf7-47d6ae29958d",
+ "name": "FB - Répondre aux commentaires",
+ "active": false,
+ "nodes": [
+  {
+   "id": "n-59996b",
+   "name": "Reçoit payload commentaire",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.1,
+   "position": [
+    240,
+    400
+   ],
+   "parameters": {}
+  },
+  {
+   "id": "n-a6eca9",
+   "name": "Extraire commentaire",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    460,
+    400
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst entry = (body.entry || [])[0] || {};\nconst change = (entry.changes || [])[0] || {};\nconst value = change.value || {};\nreturn [{ json: {\n  comment_id: value.comment_id || '',\n  message: value.message || '',\n  commentateur: (value.from && value.from.name) || 'Client',\n  post_id: value.post_id || entry.id || ''\n} }];"
+   }
+  },
+  {
+   "id": "n-f6f173",
+   "name": "Lire Produits",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.2,
+   "position": [
+    680,
+    400
+   ],
+   "parameters": {
+    "resource": "sheetWithinDocument",
+    "operation": "read",
+    "documentId": {
+     "__rl": true,
+     "mode": "list",
+     "value": ""
+    },
+    "sheetName": {
+     "__rl": true,
+     "mode": "list",
+     "value": "Produits"
+    },
+    "options": {}
+   },
+   "credentials": {
+    "googleSheetsOAuth2Api": {
+     "id": null,
+     "name": "Google Sheets - Produits"
+    }
+   }
+  },
+  {
+   "id": "n-08c828",
+   "name": "Gemini - Rediger reponse",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    900,
+    400
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ system_instruction: { parts: [{ text: \"Tu es le commercial chaleureux de la page Facebook 'Moi AI'. Reponds au commentaire client en te basant UNIQUEMENT sur le catalogue produits fourni. Ton commercial chaleureux, reponse courte, invite a passer en message prive pour commander. N'invente JAMAIS un prix ni un produit absent de la liste. Si la question sort du catalogue, propose d'ecrire en prive.\" }] }, contents: [{ parts: [{ text: \"CATALOGUE PRODUITS : \" + JSON.stringify($('Lire Produits').all().map(i => i.json)) + \"\\nCOMMENTAIRE de \" + $('Extraire commentaire').first().json.commentateur + \" : \" + $('Extraire commentaire').first().json.message }] }] }) }}",
+    "options": {
+     "timeout": 60000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": null,
+     "name": "Gemini API Key"
+    }
+   },
+   "notes": "Credential « Gemini API Key » (Header Auth) a creer : Name = x-goog-api-key, Value = ta cle. Aucune cle en dur ici."
+  },
+  {
+   "id": "n-7e8bca",
+   "name": "Texte reponse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1120,
+    400
+   ],
+   "parameters": {
+    "mode": "runOnceForAllItems",
+    "jsCode": "const r = $input.first().json;\nlet texte = '';\ntry { texte = r.candidates[0].content.parts.map(p => p.text || '').join(''); } catch (e) { texte = ''; }\nif (!texte) texte = 'Merci pour votre commentaire ! Ecrivez-nous en message prive pour commander.';\nreturn [{ json: { reponse: texte } }];"
+   }
+  },
+  {
+   "id": "n-e4548a",
+   "name": "FB - Repondre commentaire",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1340,
+    400
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "=https://graph.facebook.com/v21.0/{{ $('Extraire commentaire').first().json.comment_id }}/comments",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpQueryAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ message: $('Texte reponse').first().json.reponse }) }}",
+    "options": {
+     "timeout": 30000
+    }
+   },
+   "credentials": {
+    "httpQueryAuth": {
+     "id": null,
+     "name": "Facebook Page Token"
+    }
+   },
+   "notes": "Credential « Facebook Page Token » (Query Auth) a creer : Name = access_token, Value = token de la page Moi AI."
+  },
+  {
+   "id": "n-4da95d",
+   "name": "Note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    120,
+    80
+   ],
+   "parameters": {
+    "content": "## FB - Repondre aux commentaires\nDeclenche par le Router (Execute Workflow). Chaine : extraction -> catalogue Produits (Sheets) -> Gemini -> reponse sous le commentaire.\n### 3 credentials a creer (noms exacts) :\n1. `Google Sheets - Produits` (Google Sheets OAuth2) — node « Lire Produits » (onglet `Produits` : nom, prix, description, stock, livraison).\n2. `Gemini API Key` (Header Auth : Name=`x-goog-api-key`) — node « Gemini - Rediger reponse ».\n3. `Facebook Page Token` (Query Auth : Name=`access_token`) — node « FB - Repondre commentaire ».",
+    "height": 220,
+    "width": 1240
+   }
+  }
+ ],
+ "connections": {
+  "Reçoit payload commentaire": {
+   "main": [
+    [
+     {
+      "node": "Extraire commentaire",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Extraire commentaire": {
+   "main": [
+    [
+     {
+      "node": "Lire Produits",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Lire Produits": {
+   "main": [
+    [
+     {
+      "node": "Gemini - Rediger reponse",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini - Rediger reponse": {
+   "main": [
+    [
+     {
+      "node": "Texte reponse",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Texte reponse": {
+   "main": [
+    [
+     {
+      "node": "FB - Repondre commentaire",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "staticData": null
+}

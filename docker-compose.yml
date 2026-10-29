@@ -1,0 +1,52 @@
+services:
+  n8n:
+    build:
+      context: .
+      dockerfile: Dockerfile.n8n
+    image: n8n-prospection:local
+    container_name: n8n-prospection
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    env_file:
+      - .env
+    environment:
+      # Authentification : n8n v1+ impose la création d'un compte propriétaire
+      # au premier lancement (http://localhost:5678) — aucun accès anonyme,
+      # même en local (contrainte projet). Pas de basic-auth legacy.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?définir N8N_ENCRYPTION_KEY dans .env}
+      # n8n v2 désactive ExecuteCommand par défaut (breaking change sécu).
+      # On le réactive explicitement : nos 5 workflows appellent scripts/*.py
+      # via ce node, en local mono-utilisateur + scripts montés en lecture seule.
+      # Doc : https://docs.n8n.io/2-0-breaking-changes/
+      - NODES_EXCLUDE=[]
+      # Webhooks publics via tunnel Cloudflare auto.enset.work -> localhost:5678
+      - N8N_HOST=auto.enset.work
+      - N8N_PORT=${N8N_PORT:-5678}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://auto.enset.work/
+      - N8N_WEBHOOK_URL=https://auto.enset.work/
+      - NODE_ENV=production
+      - TZ=${TZ:-Indian/Antananarivo}
+      # Variables métier transmises aux workflows (pas de chemins codés en dur)
+      - LEADS_DB_PATH=/home/node/.n8n/data/leads.db
+      - DRY_RUN=${DRY_RUN:-true}
+      - REQUIRE_APPROVAL=${REQUIRE_APPROVAL:-true}
+      - DAILY_SEND_LIMIT=${DAILY_SEND_LIMIT:-12}
+      - PROSPECTION_EMAIL=${PROSPECTION_EMAIL:-hsavatra@gmail.com}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # ./data local (SQLite, CSV) monté dans n8n pour les scripts
+      - ./data:/home/node/.n8n/data
+      - ./scripts:/home/node/.n8n/scripts:ro
+      - ./n8n-workflows:/home/node/.n8n/workflows-import
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5678/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  n8n_data:
+    name: n8n-prospection-data
